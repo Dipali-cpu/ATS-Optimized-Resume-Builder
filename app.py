@@ -7,7 +7,7 @@ import json
 def check_password():
     """Returns `True` if the user had the correct password."""
     def password_entered():
-        if hashlib.sha256(st.session_state["password"].encode()).hexdigest() == hashlib.sha256("dip0001".encode()).hexdigest():
+        if hashlib.sha256(st.session_state["password"].encode()).hexdigest() == hashlib.sha256(st.secrets["password"].encode()).hexdigest():
             st.session_state["password_correct"] = True
             del st.session_state["password"]
         else:
