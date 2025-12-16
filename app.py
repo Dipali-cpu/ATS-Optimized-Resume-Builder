@@ -191,9 +191,9 @@ tab1, tab2, tab3, tab4 = st.tabs(["📝 Fill Information", "🎯 ATS Analysis & 
 
 with tab1:
     st.header("📄 Upload Existing CV (Optional)")
-    st.markdown("Upload your existing CV to auto-generate professional summary")
+    st.markdown("Upload your existing CV to **auto-fill the entire form** and extract all information")
     
-    uploaded_cv = st.file_uploader("Upload CV (PDF, DOCX, TXT)", type=['pdf', 'docx', 'txt'])
+    uploaded_cv = st.file_uploader("Upload CV (PDF, DOCX, TXT)", type=['pdf', 'docx', 'txt'], key="cv_uploader")
     
     if uploaded_cv is not None:
         try:
@@ -202,37 +202,150 @@ with tab1:
                 st.success("✅ CV uploaded successfully!")
             elif uploaded_cv.type == "application/pdf":
                 try:
-                    import PyPDF2
-                    pdf_reader = PyPDF2.PdfReader(uploaded_cv)
-                    st.session_state.cv_text = ""
-                    for page in pdf_reader.pages:
-                        st.session_state.cv_text += page.extract_text()
-                    st.success("✅ CV uploaded successfully!")
-                except:
-                    st.warning("PDF reading requires PyPDF2. Text extraction may be limited.")
+                    # Try pypdf first (newer)
+                    try:
+                        from pypdf import PdfReader
+                        pdf_reader = PdfReader(uploaded_cv)
+                        st.session_state.cv_text = ""
+                        for page in pdf_reader.pages:
+                            st.session_state.cv_text += page.extract_text() + "\n"
+                        st.success("✅ PDF uploaded successfully!")
+                    except ImportError:
+                        # Fallback to PyPDF2 (older)
+                        import PyPDF2
+                        pdf_reader = PyPDF2.PdfReader(uploaded_cv)
+                        st.session_state.cv_text = ""
+                        for page in pdf_reader.pages:
+                            st.session_state.cv_text += page.extract_text() + "\n"
+                        st.success("✅ PDF uploaded successfully!")
+                except Exception as pdf_error:
+                    st.error(f"PDF reading error: {str(pdf_error)}")
+                    st.warning("💡 To fix: Run `pip install pypdf` or `pip install PyPDF2` in terminal")
             elif uploaded_cv.type == "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
                 try:
                     import docx
                     doc = docx.Document(uploaded_cv)
                     st.session_state.cv_text = "\n".join([para.text for para in doc.paragraphs])
-                    st.success("✅ CV uploaded successfully!")
-                except:
-                    st.warning("DOCX reading requires python-docx. Please install it.")
+                    st.success("✅ DOCX uploaded successfully!")
+                except Exception as docx_error:
+                    st.error(f"DOCX reading error: {str(docx_error)}")
+                    st.warning("💡 To fix: Run `pip install python-docx` in terminal")
             
             if st.session_state.cv_text:
                 with st.expander("View extracted text"):
                     st.text_area("Extracted CV Text", st.session_state.cv_text, height=200, disabled=True)
+                
+                # Auto-fill button
+                st.markdown("---")
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.button("🤖 Auto-Fill Form from CV", type="primary", use_container_width=True):
+                        with st.spinner("Analyzing CV and extracting information..."):
+                            cv_text = st.session_state.cv_text.lower()
+                            lines = st.session_state.cv_text.split('\n')
+                            
+                            # Extract email
+                            email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', st.session_state.cv_text)
+                            if email_match and 'auto_email' not in st.session_state:
+                                st.session_state['auto_email'] = email_match.group()
+                            
+                            # Extract phone
+                            phone_match = re.search(r'[\+\(]?[1-9][0-9 .\-\(\)]{8,}[0-9]', st.session_state.cv_text)
+                            if phone_match and 'auto_phone' not in st.session_state:
+                                st.session_state['auto_phone'] = phone_match.group().strip()
+                            
+                            # Extract name (usually first line or after "Name:")
+                            name_keywords = ['name:', 'candidate:', 'applicant:']
+                            auto_name = ""
+                            for line in lines[:10]:
+                                line_lower = line.lower().strip()
+                                if any(kw in line_lower for kw in name_keywords):
+                                    auto_name = line.split(':', 1)[1].strip() if ':' in line else ""
+                                    break
+                                elif len(line.strip()) > 0 and len(line.strip().split()) <= 4 and not '@' in line and not any(c.isdigit() for c in line):
+                                    auto_name = line.strip()
+                                    break
+                            
+                            if auto_name and 'auto_name' not in st.session_state:
+                                st.session_state['auto_name'] = auto_name
+                            
+                            # Extract location
+                            location_keywords = ['location:', 'address:', 'city:', 'residence:']
+                            for line in lines:
+                                if any(kw in line.lower() for kw in location_keywords):
+                                    location = line.split(':', 1)[1].strip() if ':' in line else ""
+                                    if location and 'auto_location' not in st.session_state:
+                                        st.session_state['auto_location'] = location
+                                    break
+                            
+                            # Extract LinkedIn
+                            linkedin_match = re.search(r'linkedin\.com/in/[\w-]+', st.session_state.cv_text, re.IGNORECASE)
+                            if linkedin_match and 'auto_linkedin' not in st.session_state:
+                                st.session_state['auto_linkedin'] = f"https://{linkedin_match.group()}" if not linkedin_match.group().startswith('http') else linkedin_match.group()
+                            
+                            # Extract GitHub
+                            github_match = re.search(r'github\.com/[\w-]+', st.session_state.cv_text, re.IGNORECASE)
+                            if github_match and 'auto_github' not in st.session_state:
+                                st.session_state['auto_github'] = f"https://{github_match.group()}" if not github_match.group().startswith('http') else github_match.group()
+                            
+                            # Extract skills
+                            skill_section = ""
+                            capture = False
+                            for i, line in enumerate(lines):
+                                if 'skill' in line.lower() or 'technical' in line.lower() or 'technologies' in line.lower():
+                                    capture = True
+                                    continue
+                                if capture:
+                                    if any(kw in line.lower() for kw in ['experience', 'education', 'project', 'certification', 'work']):
+                                        break
+                                    skill_section += line + " "
+                                    if i > 100:  # Don't go too far
+                                        break
+                            
+                            if skill_section and 'auto_skills' not in st.session_state:
+                                # Clean and format skills
+                                skills = re.sub(r'[•\-\*]', '', skill_section)
+                                skills = ', '.join([s.strip() for s in skills.split(',') if s.strip()])
+                                st.session_state['auto_skills'] = skills if skills else "Python, Data Analysis, Machine Learning"
+                            
+                            # Extract summary
+                            summary_keywords = ['summary', 'profile', 'objective', 'about']
+                            extracted_summary = ""
+                            for i, line in enumerate(lines):
+                                if any(keyword in line.lower() for keyword in summary_keywords):
+                                    extracted_summary = ' '.join(lines[i+1:i+4])
+                                    break
+                            
+                            if extracted_summary and 'auto_summary' not in st.session_state:
+                                st.session_state['auto_summary'] = extracted_summary[:300]
+                            elif 'auto_summary' not in st.session_state:
+                                st.session_state['auto_summary'] = "Experienced professional with strong technical skills and proven track record in data science and analytics."
+                            
+                            st.success("✅ Form auto-filled! Scroll down to review and edit the extracted information.")
+                            st.info("💡 Please review all fields and make any necessary corrections before saving.")
+                            st.rerun()
+                
+                with col2:
+                    if st.button("🔄 Clear Auto-Fill Data", use_container_width=True):
+                        keys_to_clear = ['auto_name', 'auto_email', 'auto_phone', 'auto_location', 
+                                        'auto_linkedin', 'auto_github', 'auto_skills', 'auto_summary']
+                        for key in keys_to_clear:
+                            if key in st.session_state:
+                                del st.session_state[key]
+                        st.success("✅ Auto-fill data cleared!")
+                        st.rerun()
         except Exception as e:
             st.error(f"Error reading file: {str(e)}")
+            st.info("Supported formats: PDF, DOCX, TXT")
     
     st.header("Personal Information")
     col1, col2 = st.columns([2, 1])
     
     with col1:
-        full_name = st.text_input("Full Name*", key="name")
-        email = st.text_input("Email*", key="email")
-        phone = st.text_input("Phone Number*", key="phone")
-        location = st.text_input("Location (City, State)", key="location")
+        full_name = st.text_input("Full Name*", key="name", value=st.session_state.get('auto_name', ''))
+        email = st.text_input("Email*", key="email", value=st.session_state.get('auto_email', ''))
+        phone = st.text_input("Phone Number*", key="phone", value=st.session_state.get('auto_phone', ''))
+        location = st.text_input("Location (City, State)", key="location", value=st.session_state.get('auto_location', ''))
         
     with col2:
         st.markdown("#### Upload Photo")
@@ -243,9 +356,9 @@ with tab1:
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        linkedin = st.text_input("LinkedIn URL", key="linkedin")
+        linkedin = st.text_input("LinkedIn URL", key="linkedin", value=st.session_state.get('auto_linkedin', ''))
     with col2:
-        github = st.text_input("GitHub URL", key="github")
+        github = st.text_input("GitHub URL", key="github", value=st.session_state.get('auto_github', ''))
     with col3:
         portfolio = st.text_input("Portfolio/Website", key="portfolio")
     
@@ -330,6 +443,7 @@ with tab1:
     st.header("Technical Skills")
     st.markdown("Enter your technical skills separated by commas")
     technical_skills = st.text_area("Technical Skills*", height=80, key="tech_skills",
+                                   value=st.session_state.get('auto_skills', ''),
                                    placeholder="Python, JavaScript, SQL, Machine Learning, AWS, etc.")
     
     st.header("Certifications")
