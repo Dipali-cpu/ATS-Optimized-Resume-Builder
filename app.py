@@ -5,7 +5,7 @@ import json
 import re
 from io import BytesIO
 import base64
-from PyPDF2 import PdfReader
+from pypdf import PdfReader
 
 
 # Password protection
