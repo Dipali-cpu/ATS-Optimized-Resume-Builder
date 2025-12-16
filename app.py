@@ -7,6 +7,7 @@ from io import BytesIO
 import base64
 from pypdf import PdfReader
 
+
 # Password protection
 def check_password():
     """Returns `True` if the user had the correct password."""
@@ -242,88 +243,229 @@ with tab1:
                 with col1:
                     if st.button("🤖 Auto-Fill Form from CV", type="primary", use_container_width=True):
                         with st.spinner("Analyzing CV and extracting information..."):
-                            cv_text = st.session_state.cv_text.lower()
-                            lines = st.session_state.cv_text.split('\n')
+                            cv_text = st.session_state.cv_text
+                            cv_lower = cv_text.lower()
+                            lines = [line.strip() for line in cv_text.split('\n') if line.strip()]
                             
-                            # Extract email
-                            email_match = re.search(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', st.session_state.cv_text)
-                            if email_match and 'auto_email' not in st.session_state:
-                                st.session_state['auto_email'] = email_match.group()
+                            # Initialize extracted data
+                            extracted = {}
                             
-                            # Extract phone
-                            phone_match = re.search(r'[\+\(]?[1-9][0-9 .\-\(\)]{8,}[0-9]', st.session_state.cv_text)
-                            if phone_match and 'auto_phone' not in st.session_state:
-                                st.session_state['auto_phone'] = phone_match.group().strip()
-                            
-                            # Extract name (usually first line or after "Name:")
-                            name_keywords = ['name:', 'candidate:', 'applicant:']
-                            auto_name = ""
-                            for line in lines[:10]:
-                                line_lower = line.lower().strip()
-                                if any(kw in line_lower for kw in name_keywords):
-                                    auto_name = line.split(':', 1)[1].strip() if ':' in line else ""
-                                    break
-                                elif len(line.strip()) > 0 and len(line.strip().split()) <= 4 and not '@' in line and not any(c.isdigit() for c in line):
-                                    auto_name = line.strip()
+                            # === IMPROVED EMAIL EXTRACTION ===
+                            email_patterns = [
+                                r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b',
+                                r'email[:\s]+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})',
+                                r'e-mail[:\s]+([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,})'
+                            ]
+                            for pattern in email_patterns:
+                                email_match = re.search(pattern, cv_text, re.IGNORECASE)
+                                if email_match:
+                                    extracted['email'] = email_match.group() if '@' in email_match.group() else email_match.group(1)
                                     break
                             
-                            if auto_name and 'auto_name' not in st.session_state:
-                                st.session_state['auto_name'] = auto_name
-                            
-                            # Extract location
-                            location_keywords = ['location:', 'address:', 'city:', 'residence:']
-                            for line in lines:
-                                if any(kw in line.lower() for kw in location_keywords):
-                                    location = line.split(':', 1)[1].strip() if ':' in line else ""
-                                    if location and 'auto_location' not in st.session_state:
-                                        st.session_state['auto_location'] = location
+                            # === IMPROVED PHONE EXTRACTION ===
+                            phone_patterns = [
+                                r'\+?\d{1,3}[-.\s]?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}',
+                                r'\+?\d{10,13}',
+                                r'(?:phone|mobile|cell|tel|contact)[:\s]+([+\d\s\-\(\)]{10,})',
+                                r'\d{3}[-.\s]\d{3}[-.\s]\d{4}',
+                                r'\(\d{3}\)\s*\d{3}[-.\s]\d{4}'
+                            ]
+                            for pattern in phone_patterns:
+                                phone_match = re.search(pattern, cv_text, re.IGNORECASE)
+                                if phone_match:
+                                    phone = phone_match.group() if phone_match.groups() == () else phone_match.group(1)
+                                    phone = re.sub(r'(?:phone|mobile|cell|tel|contact)[:\s]+', '', phone, flags=re.IGNORECASE)
+                                    extracted['phone'] = phone.strip()
                                     break
                             
-                            # Extract LinkedIn
-                            linkedin_match = re.search(r'linkedin\.com/in/[\w-]+', st.session_state.cv_text, re.IGNORECASE)
-                            if linkedin_match and 'auto_linkedin' not in st.session_state:
-                                st.session_state['auto_linkedin'] = f"https://{linkedin_match.group()}" if not linkedin_match.group().startswith('http') else linkedin_match.group()
+                            # === IMPROVED NAME EXTRACTION ===
+                            name_found = False
                             
-                            # Extract GitHub
-                            github_match = re.search(r'github\.com/[\w-]+', st.session_state.cv_text, re.IGNORECASE)
-                            if github_match and 'auto_github' not in st.session_state:
-                                st.session_state['auto_github'] = f"https://{github_match.group()}" if not github_match.group().startswith('http') else github_match.group()
+                            # Method 1: Look for "Name:" label
+                            for line in lines[:15]:
+                                if re.match(r'^(?:name|candidate|applicant)[:\s]+(.+)', line, re.IGNORECASE):
+                                    match = re.match(r'^(?:name|candidate|applicant)[:\s]+(.+)', line, re.IGNORECASE)
+                                    extracted['name'] = match.group(1).strip()
+                                    name_found = True
+                                    break
                             
-                            # Extract skills
+                            # Method 2: First non-empty line that looks like a name (2-4 words, no numbers, no email)
+                            if not name_found:
+                                for line in lines[:10]:
+                                    words = line.split()
+                                    if (2 <= len(words) <= 4 and 
+                                        not '@' in line and 
+                                        not any(char.isdigit() for char in line) and
+                                        not any(kw in line.lower() for kw in ['resume', 'cv', 'curriculum', 'profile', 'summary']) and
+                                        len(line) < 50):
+                                        extracted['name'] = line.strip()
+                                        name_found = True
+                                        break
+                            
+                            # === IMPROVED LOCATION EXTRACTION ===
+                            location_patterns = [
+                                r'(?:location|address|city|residence|based in)[:\s]+(.+?)(?:\n|$)',
+                                r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*[A-Z]{2,})',  # City, STATE
+                                r'([A-Z][a-z]+,\s*[A-Z][a-z]+(?:,\s*\d{5})?)'  # City, State, ZIP
+                            ]
+                            for pattern in location_patterns:
+                                loc_match = re.search(pattern, cv_text, re.IGNORECASE)
+                                if loc_match:
+                                    location = loc_match.group(1) if loc_match.groups() else loc_match.group()
+                                    location = re.sub(r'(?:location|address|city|residence|based in)[:\s]+', '', location, flags=re.IGNORECASE)
+                                    extracted['location'] = location.strip()
+                                    break
+                            
+                            # === IMPROVED LINKEDIN EXTRACTION ===
+                            linkedin_patterns = [
+                                r'(?:linkedin\.com/in/[\w-]+)',
+                                r'(?:www\.)?linkedin\.com/in/([\w-]+)',
+                                r'(?:linkedin)[:\s]+(linkedin\.com/in/[\w-]+)',
+                                r'(?:linkedin)[:\s]+(.+?)(?:\n|$)'
+                            ]
+                            for pattern in linkedin_patterns:
+                                li_match = re.search(pattern, cv_text, re.IGNORECASE)
+                                if li_match:
+                                    linkedin = li_match.group()
+                                    if 'linkedin.com' in linkedin.lower():
+                                        if not linkedin.startswith('http'):
+                                            linkedin = 'https://' + linkedin
+                                        extracted['linkedin'] = linkedin.strip()
+                                        break
+                            
+                            # === IMPROVED GITHUB EXTRACTION ===
+                            github_patterns = [
+                                r'(?:github\.com/[\w-]+)',
+                                r'(?:www\.)?github\.com/([\w-]+)',
+                                r'(?:github)[:\s]+(github\.com/[\w-]+)',
+                                r'(?:github)[:\s]+(.+?)(?:\n|$)'
+                            ]
+                            for pattern in github_patterns:
+                                gh_match = re.search(pattern, cv_text, re.IGNORECASE)
+                                if gh_match:
+                                    github = gh_match.group()
+                                    if 'github.com' in github.lower():
+                                        if not github.startswith('http'):
+                                            github = 'https://' + github
+                                        extracted['github'] = github.strip()
+                                        break
+                            
+                            # === IMPROVED SKILLS EXTRACTION ===
                             skill_section = ""
-                            capture = False
+                            in_skills = False
+                            end_markers = ['experience', 'education', 'project', 'certification', 'work', 'employment', 'career']
+                            
                             for i, line in enumerate(lines):
-                                if 'skill' in line.lower() or 'technical' in line.lower() or 'technologies' in line.lower():
-                                    capture = True
+                                line_lower = line.lower()
+                                
+                                # Start capturing when we find skills section
+                                if any(kw in line_lower for kw in ['skill', 'technical', 'technologies', 'competencies', 'expertise']):
+                                    in_skills = True
                                     continue
-                                if capture:
-                                    if any(kw in line.lower() for kw in ['experience', 'education', 'project', 'certification', 'work']):
-                                        break
-                                    skill_section += line + " "
-                                    if i > 100:  # Don't go too far
-                                        break
-                            
-                            if skill_section and 'auto_skills' not in st.session_state:
-                                # Clean and format skills
-                                skills = re.sub(r'[•\-\*]', '', skill_section)
-                                skills = ', '.join([s.strip() for s in skills.split(',') if s.strip()])
-                                st.session_state['auto_skills'] = skills if skills else "Python, Data Analysis, Machine Learning"
-                            
-                            # Extract summary
-                            summary_keywords = ['summary', 'profile', 'objective', 'about']
-                            extracted_summary = ""
-                            for i, line in enumerate(lines):
-                                if any(keyword in line.lower() for keyword in summary_keywords):
-                                    extracted_summary = ' '.join(lines[i+1:i+4])
+                                
+                                # Stop when we hit another section
+                                if in_skills and any(marker in line_lower for marker in end_markers):
                                     break
+                                
+                                # Capture skill lines
+                                if in_skills:
+                                    skill_section += line + ", "
+                                    if i > 100:
+                                        break
                             
-                            if extracted_summary and 'auto_summary' not in st.session_state:
-                                st.session_state['auto_summary'] = extracted_summary[:300]
-                            elif 'auto_summary' not in st.session_state:
-                                st.session_state['auto_summary'] = "Experienced professional with strong technical skills and proven track record in data science and analytics."
+                            if skill_section:
+                                # Clean skills
+                                skills = re.sub(r'[•\-\*\|\[\]{}]', '', skill_section)
+                                skills = re.sub(r'\s+', ' ', skills)
+                                
+                                # Split by common delimiters
+                                skill_list = []
+                                for delim in [',', '|', '•', ';']:
+                                    if delim in skills:
+                                        skill_list = [s.strip() for s in skills.split(delim) if s.strip() and len(s.strip()) > 1]
+                                        break
+                                
+                                if not skill_list:
+                                    skill_list = skills.split()
+                                
+                                # Remove duplicates and clean
+                                skill_list = list(dict.fromkeys([s.strip() for s in skill_list if len(s.strip()) > 2]))
+                                extracted['skills'] = ', '.join(skill_list[:20])  # Limit to 20 skills
                             
-                            st.success("✅ Form auto-filled! Scroll down to review and edit the extracted information.")
-                            st.info("💡 Please review all fields and make any necessary corrections before saving.")
+                            # If no skills found, look for common tech terms
+                            if not extracted.get('skills'):
+                                tech_keywords = ['python', 'java', 'javascript', 'sql', 'react', 'node', 'aws', 
+                                               'docker', 'kubernetes', 'machine learning', 'data science', 'pandas', 
+                                               'numpy', 'tensorflow', 'pytorch', 'html', 'css', 'git']
+                                found_skills = [kw for kw in tech_keywords if kw in cv_lower]
+                                if found_skills:
+                                    extracted['skills'] = ', '.join(found_skills)
+                            
+                            # === IMPROVED SUMMARY EXTRACTION ===
+                            summary_found = False
+                            summary_keywords = ['summary', 'profile', 'objective', 'about', 'overview', 'introduction']
+                            
+                            for i, line in enumerate(lines):
+                                if any(kw in line.lower() for kw in summary_keywords) and len(line) < 50:
+                                    # Get next 2-5 lines
+                                    summary_lines = []
+                                    for j in range(i+1, min(i+6, len(lines))):
+                                        if any(end in lines[j].lower() for end in ['experience', 'education', 'skill', 'project']):
+                                            break
+                                        summary_lines.append(lines[j])
+                                    
+                                    if summary_lines:
+                                        extracted['summary'] = ' '.join(summary_lines)[:400]
+                                        summary_found = True
+                                        break
+                            
+                            # If no summary found, create from first paragraph
+                            if not summary_found:
+                                first_para = []
+                                for line in lines[3:15]:  # Skip name/contact info
+                                    if len(line) > 30 and not any(kw in line.lower() for kw in ['email', 'phone', 'linkedin', 'github']):
+                                        first_para.append(line)
+                                        if len(' '.join(first_para)) > 200:
+                                            break
+                                
+                                if first_para:
+                                    extracted['summary'] = ' '.join(first_para)[:400]
+                            
+                            # === UPDATE SESSION STATE ===
+                            if extracted.get('email'):
+                                st.session_state['auto_email'] = extracted['email']
+                            if extracted.get('phone'):
+                                st.session_state['auto_phone'] = extracted['phone']
+                            if extracted.get('name'):
+                                st.session_state['auto_name'] = extracted['name']
+                            if extracted.get('location'):
+                                st.session_state['auto_location'] = extracted['location']
+                            if extracted.get('linkedin'):
+                                st.session_state['auto_linkedin'] = extracted['linkedin']
+                            if extracted.get('github'):
+                                st.session_state['auto_github'] = extracted['github']
+                            if extracted.get('skills'):
+                                st.session_state['auto_skills'] = extracted['skills']
+                            if extracted.get('summary'):
+                                st.session_state['auto_summary'] = extracted['summary']
+                            
+                            # Show what was extracted
+                            st.success("✅ Form auto-filled successfully!")
+                            
+                            with st.expander("📊 Extracted Information Preview", expanded=True):
+                                col1, col2 = st.columns(2)
+                                with col1:
+                                    st.write("**Name:**", extracted.get('name', '❌ Not found'))
+                                    st.write("**Email:**", extracted.get('email', '❌ Not found'))
+                                    st.write("**Phone:**", extracted.get('phone', '❌ Not found'))
+                                    st.write("**Location:**", extracted.get('location', '❌ Not found'))
+                                with col2:
+                                    st.write("**LinkedIn:**", extracted.get('linkedin', '❌ Not found'))
+                                    st.write("**GitHub:**", extracted.get('github', '❌ Not found'))
+                                    st.write("**Skills Count:**", len(extracted.get('skills', '').split(',')) if extracted.get('skills') else 0)
+                                    st.write("**Summary Length:**", len(extracted.get('summary', '')) if extracted.get('summary') else 0)
+                            
+                            st.info("💡 Scroll down to review all fields. Edit anything that needs correction before saving!")
                             st.rerun()
                 
                 with col2:
