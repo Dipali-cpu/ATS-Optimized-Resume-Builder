@@ -7,7 +7,6 @@ from io import BytesIO
 import base64
 from pypdf import PdfReader
 
-
 # Password protection
 def check_password():
     """Returns `True` if the user had the correct password."""
@@ -660,26 +659,96 @@ with tab2:
                     job_words = re.findall(r'\b[a-z]+\b', job_desc_lower)
                     job_keywords = [w for w in job_words if len(w) > 3 and w not in stop_words]
                     
-                    # Extract phrases
+                    # Extract multi-word phrases (bigrams and trigrams)
                     job_phrases = []
                     words = job_desc_lower.split()
+                    
+                    # Extract 2-word phrases (bigrams)
                     for i in range(len(words) - 1):
                         if len(words[i]) > 2 and len(words[i+1]) > 2:
                             phrase = f"{words[i]} {words[i+1]}"
-                            job_phrases.append(phrase)
+                            if not any(stop in phrase for stop in ['the ', ' the', 'and ', ' and', 'or ', ' or']):
+                                job_phrases.append(phrase)
                     
-                    # Tech skills list
+                    # Extract 3-word phrases (trigrams) for better matching
+                    for i in range(len(words) - 2):
+                        if len(words[i]) > 2 and len(words[i+1]) > 2 and len(words[i+2]) > 2:
+                            phrase = f"{words[i]} {words[i+1]} {words[i+2]}"
+                            if not any(stop in phrase for stop in ['the ', ' the', 'and ', ' and', 'or ', ' or', 'a ', ' a ']):
+                                job_phrases.append(phrase)
+                    
+                    # Tech skills list (EXPANDED)
                     tech_skills = ['python', 'java', 'javascript', 'react', 'angular', 'vue', 'node', 'sql', 
-                                  'mongodb', 'aws', 'azure', 'docker', 'kubernetes', 'git', 'agile', 'scrum',
+                                  'mongodb', 'aws', 'azure', 'gcp', 'google cloud', 'docker', 'kubernetes', 'git', 'agile', 'scrum',
                                   'machine learning', 'artificial intelligence', 'data science', 'tensorflow',
                                   'pytorch', 'scikit-learn', 'sklearn', 'pandas', 'numpy', 'html', 'css', 'api', 'rest',
-                                  'graphql', 'typescript', 'c++', 'golang', 'rust', 'swift', 'kotlin', 'deep learning',
-                                  'nlp', 'computer vision', 'data analysis', 'statistical analysis', 'matplotlib', 'seaborn']
+                                  'graphql', 'typescript', 'c++', 'c#', 'golang', 'rust', 'swift', 'kotlin', 'deep learning',
+                                  'nlp', 'natural language processing', 'computer vision', 'data analysis', 'statistical analysis', 
+                                  'matplotlib', 'seaborn', 'tableau', 'power bi', 'powerbi', 'excel', 'spark', 'hadoop', 
+                                  'kafka', 'redis', 'postgresql', 'mysql', 'oracle', 'nosql', 'etl', 'data warehouse',
+                                  'data engineering', 'devops', 'ci/cd', 'jenkins', 'gitlab', 'github', 'bitbucket',
+                                  'linux', 'unix', 'bash', 'shell scripting', 'microservices', 'serverless', 'lambda',
+                                  'ec2', 's3', 'rds', 'dynamodb', 'cloudformation', 'terraform', 'ansible', 'chef', 'puppet',
+                                  'jira', 'confluence', 'slack', 'trello', 'asana', 'django', 'flask', 'fastapi', 'spring',
+                                  'express', 'nest', 'next', 'vue', 'svelte', 'webpack', 'babel', 'eslint', 'jest', 'pytest',
+                                  'selenium', 'cypress', 'postman', 'swagger', 'openapi', 'json', 'xml', 'yaml', 'csv',
+                                  'jupyter', 'colab', 'anaconda', 'conda', 'pip', 'npm', 'yarn', 'maven', 'gradle',
+                                  'scipy', 'statsmodels', 'xgboost', 'lightgbm', 'catboost', 'keras', 'hugging face',
+                                  'bert', 'gpt', 'transformer', 'lstm', 'rnn', 'cnn', 'gan', 'reinforcement learning',
+                                  'supervised learning', 'unsupervised learning', 'classification', 'regression', 'clustering',
+                                  'time series', 'forecasting', 'optimization', 'ab testing', 'a/b testing', 'hypothesis testing',
+                                  'statistical modeling', 'predictive modeling', 'data mining', 'data visualization',
+                                  'business intelligence', 'bi', 'analytics', 'big data', 'streaming', 'batch processing',
+                                  'api development', 'web development', 'frontend', 'backend', 'full stack', 'fullstack',
+                                  'mobile development', 'ios', 'android', 'react native', 'flutter', 'xamarin',
+                                  'cloud computing', 'cloud architecture', 'solution architecture', 'system design',
+                                  'database design', 'data modeling', 'schema design', 'query optimization',
+                                  'performance tuning', 'scalability', 'high availability', 'disaster recovery',
+                                  'security', 'authentication', 'authorization', 'encryption', 'oauth', 'jwt',
+                                  'version control', 'code review', 'unit testing', 'integration testing', 'testing',
+                                  'debugging', 'troubleshooting', 'monitoring', 'logging', 'alerting', 'observability',
+                                  'grafana', 'prometheus', 'elk', 'elasticsearch', 'logstash', 'kibana', 'splunk',
+                                  'datadog', 'new relic', 'cloudwatch', 'azure monitor', 'google analytics',
+                                  'seo', 'sem', 'digital marketing', 'crm', 'salesforce', 'hubspot', 'marketo',
+                                  'product management', 'project management', 'stakeholder management', 'requirements gathering',
+                                  'documentation', 'technical writing', 'presentation', 'communication', 'collaboration',
+                                  'leadership', 'mentoring', 'training', 'coaching', 'team building', 'problem solving',
+                                  'critical thinking', 'analytical skills', 'attention to detail', 'time management']
                     
-                    # Action verbs
+                    # Action verbs (EXPANDED)
                     action_verbs = ['developed', 'managed', 'led', 'created', 'implemented', 'designed',
                                    'built', 'improved', 'increased', 'reduced', 'launched', 'delivered',
-                                   'coordinated', 'analyzed', 'optimized', 'automated', 'established']
+                                   'coordinated', 'analyzed', 'optimized', 'automated', 'established',
+                                   'architected', 'engineered', 'deployed', 'maintained', 'migrated',
+                                   'integrated', 'configured', 'administered', 'monitored', 'troubleshot',
+                                   'debugged', 'refactored', 'enhanced', 'streamlined', 'standardized',
+                                   'consolidated', 'modernized', 'transformed', 'revolutionized', 'pioneered',
+                                   'spearheaded', 'initiated', 'founded', 'established', 'drove', 'accelerated',
+                                   'scaled', 'expanded', 'grew', 'boosted', 'maximized', 'elevated',
+                                   'strengthened', 'fortified', 'secured', 'protected', 'validated',
+                                   'verified', 'tested', 'evaluated', 'assessed', 'audited', 'reviewed',
+                                   'researched', 'investigated', 'identified', 'discovered', 'uncovered',
+                                   'resolved', 'fixed', 'corrected', 'addressed', 'mitigated', 'prevented',
+                                   'eliminated', 'minimized', 'decreased', 'lowered', 'cut', 'saved',
+                                   'generated', 'produced', 'achieved', 'accomplished', 'executed', 'performed',
+                                   'conducted', 'facilitated', 'orchestrated', 'supervised', 'oversaw',
+                                   'directed', 'guided', 'mentored', 'trained', 'educated', 'coached',
+                                   'advised', 'consulted', 'recommended', 'proposed', 'suggested', 'advocated',
+                                   'presented', 'communicated', 'collaborated', 'partnered', 'liaised',
+                                   'negotiated', 'influenced', 'persuaded', 'convinced', 'motivated',
+                                   'inspired', 'empowered', 'enabled', 'supported', 'assisted', 'helped',
+                                   'contributed', 'participated', 'engaged', 'volunteered', 'organized',
+                                   'planned', 'strategized', 'forecasted', 'predicted', 'projected',
+                                   'budgeted', 'allocated', 'distributed', 'prioritized', 'scheduled',
+                                   'documented', 'recorded', 'reported', 'tracked', 'measured', 'quantified',
+                                   'calculated', 'computed', 'processed', 'aggregated', 'synthesized',
+                                   'compiled', 'collected', 'gathered', 'extracted', 'retrieved', 'queried',
+                                   'filtered', 'sorted', 'organized', 'structured', 'formatted', 'normalized',
+                                   'cleaned', 'validated', 'transformed', 'converted', 'migrated', 'imported',
+                                   'exported', 'transferred', 'synchronized', 'integrated', 'connected',
+                                   'linked', 'mapped', 'modeled', 'simulated', 'prototyped', 'demoed',
+                                   'showcased', 'demonstrated', 'illustrated', 'visualized', 'charted',
+                                   'graphed', 'plotted', 'rendered', 'published', 'released', 'shipped']
                     
                     # Calculate matches
                     keyword_matches = []
@@ -701,11 +770,33 @@ with tab2:
                         if verb in resume_text['experience']:
                             action_verb_matches.append(verb)
                     
-                    # Calculate scores
-                    keyword_score = (len(keyword_matches) / max(len(set(job_keywords)), 1)) * 40
-                    tech_score = (len(tech_skill_matches) / max(len([k for k in set(job_keywords) if k in tech_skills]), 1)) * 25 if any(k in tech_skills for k in job_keywords) else 0
-                    phrase_score = (len(phrase_matches) / max(len(set(job_phrases)), 1)) * 20
-                    action_verb_score = (len(action_verb_matches) / max(len(action_verbs), 1)) * 10
+                    # Calculate weighted scores (IMPROVED ALGORITHM)
+                    # More generous scoring to help users reach 100%
+                    
+                    # Keywords score (40 points) - base + bonus
+                    base_keyword_score = (len(keyword_matches) / max(len(set(job_keywords)), 1)) * 35
+                    bonus_keywords = min(5, len(keyword_matches) // 10)  # Bonus for having many keywords
+                    keyword_score = min(40, base_keyword_score + bonus_keywords)
+                    
+                    # Tech skills score (25 points) - weighted higher if tech job
+                    tech_keywords_in_job = [k for k in set(job_keywords) if k in tech_skills]
+                    if tech_keywords_in_job:
+                        tech_score = (len(tech_skill_matches) / max(len(tech_keywords_in_job), 1)) * 25
+                    else:
+                        # If not a tech-heavy job, give partial credit
+                        tech_score = (len(tech_skill_matches) / max(len(tech_skills[:20]), 1)) * 25
+                    tech_score = min(25, tech_score)
+                    
+                    # Phrase score (20 points) - bonus for exact matches
+                    unique_phrases = list(set(job_phrases))
+                    base_phrase_score = (len(phrase_matches) / max(len(unique_phrases), 1)) * 18
+                    bonus_phrases = min(2, len(phrase_matches) // 5)  # Bonus for many phrase matches
+                    phrase_score = min(20, base_phrase_score + bonus_phrases)
+                    
+                    # Action verb score (10 points) - easier to max out
+                    action_verb_score = min(10, (len(action_verb_matches) / 5) * 10)  # Need only 5 verbs for full score
+                    
+                    # Format score (5 points) - always full since we use good template
                     format_score = 5
                     
                     total_score = min(100, int(keyword_score + tech_score + phrase_score + action_verb_score + format_score))
@@ -1066,6 +1157,17 @@ with tab4:
                 .contact a:hover {{
                     text-decoration: underline;
                 }}
+                
+                /* Print styles - show full URLs */
+                @media print {{
+                    .contact a {{
+                        color: #2980b9;
+                        text-decoration: underline;
+                    }}
+                    .contact a:after {{
+                        content: "";
+                    }}
+                }}
                 .section {{
                     margin-bottom: 20px;
                 }}
@@ -1121,9 +1223,9 @@ with tab4:
                 {f"{data.get('location', '')}" if data.get('location') else ''}
                 {f" | {data.get('phone', '')}" if data.get('phone') else ''}
                 {f" | {data.get('email', '')}" if data.get('email') else ''}
-                {f" | <a href='{data.get('linkedin')}' target='_blank'>LinkedIn</a>" if data.get('linkedin') else ''}
-                {f" | <a href='{data.get('github')}' target='_blank'>GitHub</a>" if data.get('github') else ''}
-                {f" | <a href='{data.get('portfolio')}' target='_blank'>Portfolio</a>" if data.get('portfolio') else ''}
+                {f" | <a href='{data.get('linkedin')}' target='_blank'>{data.get('linkedin')}</a>" if data.get('linkedin') else ''}
+                {f" | <a href='{data.get('github')}' target='_blank'>{data.get('github')}</a>" if data.get('github') else ''}
+                {f" | <a href='{data.get('portfolio')}' target='_blank'>{data.get('portfolio')}</a>" if data.get('portfolio') else ''}
             </div>
             
             <div class="section">
