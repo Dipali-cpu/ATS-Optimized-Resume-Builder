@@ -5,7 +5,6 @@ import json
 import re
 from io import BytesIO
 import base64
-from pypdf import PdfReader
 
 
 
@@ -259,39 +258,67 @@ with tab1:
                             # === IMPROVED NAME EXTRACTION ===
                             name_found = False
                             
-                            # Method 1: Look for "Name:" label
+                            # Method 1: Look for explicit "Name:" label
                             for line in lines[:15]:
-                                if re.match(r'^(?:name|candidate|applicant)[:\s]+(.+)', line, re.IGNORECASE):
-                                    match = re.match(r'^(?:name|candidate|applicant)[:\s]+(.+)', line, re.IGNORECASE)
-                                    extracted['name'] = match.group(1).strip()
-                                    name_found = True
-                                    break
+                                if re.match(r'^(?:name|full name|candidate|applicant)[:\s]+(.+)', line, re.IGNORECASE):
+                                    match = re.match(r'^(?:name|full name|candidate|applicant)[:\s]+(.+)', line, re.IGNORECASE)
+                                    name = match.group(1).strip()
+                                    # Clean name - remove emails, phones, locations
+                                    name = re.sub(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b', '', name)
+                                    name = re.sub(r'[\d\-\(\)\+]', '', name)
+                                    if name and len(name.split()) >= 2 and len(name.split()) <= 4:
+                                        extracted['name'] = name.strip()
+                                        name_found = True
+                                        break
                             
-                            # Method 2: First non-empty line that looks like a name (2-4 words, no numbers, no email)
+                            # Method 2: First line that looks like a full name (improved)
                             if not name_found:
-                                for line in lines[:10]:
+                                for line in lines[:8]:
                                     words = line.split()
+                                    # Name should be 2-4 words, no numbers, no @, no common resume words
                                     if (2 <= len(words) <= 4 and 
                                         not '@' in line and 
                                         not any(char.isdigit() for char in line) and
-                                        not any(kw in line.lower() for kw in ['resume', 'cv', 'curriculum', 'profile', 'summary']) and
-                                        len(line) < 50):
+                                        not any(kw in line.lower() for kw in ['resume', 'cv', 'curriculum', 'profile', 'summary', 
+                                                                               'email', 'phone', 'linkedin', 'github', 'address',
+                                                                               'experience', 'education', 'skills', 'objective']) and
+                                        len(line) < 50 and
+                                        all(len(word) >= 2 for word in words)):  # Each word at least 2 chars
                                         extracted['name'] = line.strip()
                                         name_found = True
                                         break
                             
                             # === IMPROVED LOCATION EXTRACTION ===
                             location_patterns = [
-                                r'(?:location|address|city|residence|based in)[:\s]+(.+?)(?:\n|$)',
-                                r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*[A-Z]{2,})',  # City, STATE
-                                r'([A-Z][a-z]+,\s*[A-Z][a-z]+(?:,\s*\d{5})?)'  # City, State, ZIP
+                                # Pattern 1: "Location: City, State"
+                                r'(?:location|address|city|residence|based in|lives in)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*[A-Z][a-z]+)',
+                                # Pattern 2: "City, State" format
+                                r'\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?)\b',
+                                # Pattern 3: "City, STATE" or "City, ST"
+                                r'\b([A-Z][a-z]+,\s*[A-Z]{2,})\b'
                             ]
+                            
+                            location_found = False
                             for pattern in location_patterns:
-                                loc_match = re.search(pattern, cv_text, re.IGNORECASE)
-                                if loc_match:
-                                    location = loc_match.group(1) if loc_match.groups() else loc_match.group()
-                                    location = re.sub(r'(?:location|address|city|residence|based in)[:\s]+', '', location, flags=re.IGNORECASE)
-                                    extracted['location'] = location.strip()
+                                for line in lines[:20]:  # Search in first 20 lines
+                                    loc_match = re.search(pattern, line)
+                                    if loc_match:
+                                        location = loc_match.group(1) if loc_match.groups() else loc_match.group()
+                                        # Clean location
+                                        location = re.sub(r'(?:location|address|city|residence|based in|lives in)[:\s]+', '', location, flags=re.IGNORECASE)
+                                        location = location.strip()
+                                        
+                                        # Validate it's not a name (no name should have comma in middle)
+                                        # Also check it's not too long and has reasonable words
+                                        words_in_loc = location.split()
+                                        if (',' in location and 
+                                            len(location) < 50 and
+                                            len(words_in_loc) <= 5 and
+                                            not any(word.lower() in ['resume', 'cv', 'experience', 'education'] for word in words_in_loc)):
+                                            extracted['location'] = location
+                                            location_found = True
+                                            break
+                                if location_found:
                                     break
                             
                             # === IMPROVED LINKEDIN EXTRACTION ===
@@ -634,9 +661,14 @@ with tab2:
                                  'when', 'where', 'why', 'how', 'all', 'both', 'each', 'few', 'more', 'most', 'other',
                                  'some', 'such', 'only', 'own', 'same', 'than', 'too', 'very', 'just', 'about'}
                     
-                    # Extract keywords
-                    job_words = re.findall(r'\b[a-z]+\b', job_desc_lower)
-                    job_keywords = [w for w in job_words if len(w) > 3 and w not in stop_words]
+                    # Extract keywords (IMPROVED - More Inclusive)
+                    job_words = re.findall(r'\b[a-zA-Z]+\b', job_desc_lower)
+                    # More lenient filtering - keep words 3+ characters
+                    job_keywords = [w for w in job_words if len(w) >= 3 and w not in stop_words]
+                    
+                    # Also extract from resume for comparison
+                    resume_words = re.findall(r'\b[a-zA-Z]+\b', full_resume_text)
+                    resume_keywords = [w for w in resume_words if len(w) >= 3 and w not in stop_words]
                     
                     # Extract multi-word phrases (bigrams and trigrams)
                     job_phrases = []
@@ -729,54 +761,165 @@ with tab2:
                                    'showcased', 'demonstrated', 'illustrated', 'visualized', 'charted',
                                    'graphed', 'plotted', 'rendered', 'published', 'released', 'shipped']
                     
-                    # Calculate matches
+                    # Calculate matches (MUCH MORE GENEROUS)
                     keyword_matches = []
                     tech_skill_matches = []
                     phrase_matches = []
                     action_verb_matches = []
                     
-                    for keyword in set(job_keywords):
+                    # Check single keywords with partial matching
+                    unique_job_keywords = list(set(job_keywords))
+                    for keyword in unique_job_keywords:
+                        # Exact match OR partial match (word contains keyword OR keyword contains word)
                         if keyword in full_resume_text:
                             keyword_matches.append(keyword)
                             if keyword in tech_skills:
                                 tech_skill_matches.append(keyword)
+                        else:
+                            # Check for partial matches (e.g., "python" matches "pythonic")
+                            for resume_word in resume_keywords:
+                                if keyword in resume_word or resume_word in keyword:
+                                    if keyword not in keyword_matches:
+                                        keyword_matches.append(keyword)
+                                        if keyword in tech_skills:
+                                            tech_skill_matches.append(keyword)
+                                    break
                     
-                    for phrase in set(job_phrases):
+                    # Check phrases with fuzzy matching
+                    unique_phrases = list(set(job_phrases))
+                    for phrase in unique_phrases:
+                        # Direct match
                         if phrase in full_resume_text:
                             phrase_matches.append(phrase)
+                        else:
+                            # Check if phrase words appear near each other (within 3 words)
+                            phrase_words = phrase.split()
+                            if len(phrase_words) == 2:
+                                word1, word2 = phrase_words
+                                # Check if both words exist in resume
+                                if word1 in full_resume_text and word2 in full_resume_text:
+                                    phrase_matches.append(phrase)
                     
+                    # Check action verbs - more generous
                     for verb in action_verbs:
+                        # Check in experience section
                         if verb in resume_text['experience']:
                             action_verb_matches.append(verb)
+                        # Also check variations (develop, developer, development)
+                        elif verb + 'ed' in resume_text['experience'] or verb + 'ing' in resume_text['experience']:
+                            action_verb_matches.append(verb)
                     
-                    # Calculate weighted scores (IMPROVED ALGORITHM)
-                    # More generous scoring to help users reach 100%
+                    # BONUS: Give credit for synonyms and related terms
+                    synonym_bonus = 0
                     
-                    # Keywords score (40 points) - base + bonus
-                    base_keyword_score = (len(keyword_matches) / max(len(set(job_keywords)), 1)) * 35
-                    bonus_keywords = min(5, len(keyword_matches) // 10)  # Bonus for having many keywords
-                    keyword_score = min(40, base_keyword_score + bonus_keywords)
+                    # Common synonyms
+                    synonyms = {
+                        'python': ['py', 'pythonic', 'python3'],
+                        'javascript': ['js', 'node', 'nodejs'],
+                        'machine learning': ['ml', 'ai', 'artificial intelligence', 'deep learning'],
+                        'data science': ['data scientist', 'analytics', 'data analysis'],
+                        'database': ['db', 'sql', 'nosql', 'mongodb', 'postgresql'],
+                        'development': ['dev', 'developer', 'develop', 'developed'],
+                        'engineering': ['engineer', 'engineered'],
+                        'optimization': ['optimize', 'optimized'],
+                        'analysis': ['analyze', 'analyzed', 'analytical'],
+                    }
                     
-                    # Tech skills score (25 points) - weighted higher if tech job
-                    tech_keywords_in_job = [k for k in set(job_keywords) if k in tech_skills]
-                    if tech_keywords_in_job:
-                        tech_score = (len(tech_skill_matches) / max(len(tech_keywords_in_job), 1)) * 25
+                    for main_term, syns in synonyms.items():
+                        if main_term in job_desc_lower:
+                            for syn in syns:
+                                if syn in full_resume_text and main_term not in keyword_matches:
+                                    synonym_bonus += 1
+                                    break
+                    
+                    # Add bonus matches to keywords
+                    keyword_matches.extend(['bonus'] * min(synonym_bonus, 10))
+                    
+                    # Calculate weighted scores (ULTRA GENEROUS - GUARANTEED HIGH SCORES)
+                    
+                    # Keywords score (40 points) - VERY EASY TO MAX OUT
+                    # Give excellent points even for small matches
+                    keyword_ratio = len(keyword_matches) / max(len(unique_job_keywords), 1)
+                    if keyword_ratio >= 0.3:  # Just 30% needed for near-max!
+                        keyword_score = 36 + (keyword_ratio - 0.3) * 5  # 36-40 points for 30-100%
                     else:
-                        # If not a tech-heavy job, give partial credit
-                        tech_score = (len(tech_skill_matches) / max(len(tech_skills[:20]), 1)) * 25
+                        keyword_score = keyword_ratio * 120  # Up to 36 points for under 30%
+                    keyword_score = min(40, keyword_score)
+                    
+                    # Tech skills score (25 points) - VERY GENEROUS
+                    tech_keywords_in_job = [k for k in unique_job_keywords if k in tech_skills]
+                    if tech_keywords_in_job:
+                        tech_ratio = len(tech_skill_matches) / max(len(tech_keywords_in_job), 1)
+                        # Give excellent points for minimal matches
+                        if tech_ratio >= 0.2:  # Just 20% needed for near-max!
+                            tech_score = 22 + (tech_ratio - 0.2) * 3.75  # 22-25 points
+                        else:
+                            tech_score = tech_ratio * 110  # Up to 22 points
+                    else:
+                        # Not a tech job - be very generous
+                        tech_score = min(25, len(tech_skill_matches) * 4 + 10)
                     tech_score = min(25, tech_score)
                     
-                    # Phrase score (20 points) - bonus for exact matches
-                    unique_phrases = list(set(job_phrases))
-                    base_phrase_score = (len(phrase_matches) / max(len(unique_phrases), 1)) * 18
-                    bonus_phrases = min(2, len(phrase_matches) // 5)  # Bonus for many phrase matches
-                    phrase_score = min(20, base_phrase_score + bonus_phrases)
+                    # Phrase score (20 points) - ULTRA GENEROUS
+                    # Full points for matching just 25% of phrases!
+                    phrase_ratio = len(phrase_matches) / max(len(unique_phrases), 1)
+                    if phrase_ratio >= 0.25:  # Just 25% needed for near-max!
+                        phrase_score = 18 + (phrase_ratio - 0.25) * 2.67  # 18-20 points for 25-100%
+                    else:
+                        phrase_score = phrase_ratio * 72  # Up to 18 points
+                    phrase_score = min(20, phrase_score)
                     
-                    # Action verb score (10 points) - easier to max out
-                    action_verb_score = min(10, (len(action_verb_matches) / 5) * 10)  # Need only 5 verbs for full score
+                    # Action verb score (10 points) - SUPER EASY
+                    # Just need 2 action verbs for near-full score!
+                    if len(action_verb_matches) >= 2:
+                        action_verb_score = 9 + min(1, (len(action_verb_matches) - 2) * 0.5)
+                    else:
+                        action_verb_score = len(action_verb_matches) * 4.5
+                    action_verb_score = min(10, action_verb_score)
                     
-                    # Format score (5 points) - always full since we use good template
+                    # Format score (5 points) - Always full
                     format_score = 5
+                    
+                    # Quality checks (MOVED BEFORE BONUS CALCULATION)
+                    has_quantifiable = bool(re.search(r'\d+%|\d+\+|increased|decreased|improved|reduced', resume_text['experience']))
+                    has_email = bool(data.get('email'))
+                    has_phone = bool(data.get('phone'))
+                    contact_complete = has_email and has_phone
+                    
+                    # BONUS POINTS (up to 15 extra) - VERY GENEROUS
+                    bonus_score = 0
+                    
+                    # Bonus for having contact info
+                    if has_email and has_phone:
+                        bonus_score += 3
+                    elif has_email or has_phone:
+                        bonus_score += 2
+                    
+                    # Bonus for having quantifiable achievements
+                    if has_quantifiable:
+                        bonus_score += 3
+                    
+                    # Bonus for having keywords (very easy to get)
+                    if len(keyword_matches) >= 15:
+                        bonus_score += 3
+                    elif len(keyword_matches) >= 8:
+                        bonus_score += 2
+                    elif len(keyword_matches) >= 5:
+                        bonus_score += 1
+                    
+                    # Bonus for having projects
+                    if st.session_state.selected_projects and len(st.session_state.selected_projects) >= 3:
+                        bonus_score += 3
+                    elif st.session_state.selected_projects:
+                        bonus_score += 2
+                    
+                    # Bonus for technical skills variety
+                    if len(tech_skill_matches) >= 5:
+                        bonus_score += 3
+                    elif len(tech_skill_matches) >= 3:
+                        bonus_score += 2
+                    elif len(tech_skill_matches) >= 1:
+                        bonus_score += 1
                     
                     total_score = min(100, int(keyword_score + tech_score + phrase_score + action_verb_score + format_score))
                     
